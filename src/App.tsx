@@ -8,7 +8,7 @@ import LeadershipPanel from "./components/LeadershipPanel";
 import Navbar from "./components/Navbar";
 import ProjectCard from "./components/ProjectCard";
 import ResumeChatbot from "./components/ResumeChatbot";
-import ResumeGlobe from "./components/ResumeGlobe";
+import SkillsPlanet from "./components/SkillsPlanet";
 import Section from "./components/Section";
 import SkillGrid from "./components/SkillGrid";
 import { resumeData, type ResumeProject } from "./data/resumeData";
@@ -135,7 +135,7 @@ function App() {
           title="3D Skill Globe"
           subtitle="Categories and usage mapping derived directly from resume skills and project/experience links."
         >
-          <ResumeGlobe regions={globeRegions} />
+          <SkillsPlanet regions={globeRegions} />
         </Section>
 
         <Section
