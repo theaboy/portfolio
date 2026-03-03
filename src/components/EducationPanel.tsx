@@ -6,17 +6,22 @@ type EducationPanelProps = {
 
 function EducationPanel({ education }: EducationPanelProps) {
   return (
-    <article className="education-card" data-reveal>
-      <h3>{education.institution}</h3>
-      <p>{education.degree}</p>
-      <p className="timeline-period">{education.period}</p>
-      <ul className="badge-list" aria-label="Academic pillars">
-        {education.pillars.map((pillar) => (
-          <li key={pillar}>{pillar}</li>
-        ))}
-      </ul>
-      <p className="education-foundation">{education.foundation}</p>
-    </article>
+    <div className="education-grid">
+      {education.map((entry) => (
+        <article key={entry.institution} className="education-card" data-reveal>
+          <h3>{entry.institution}</h3>
+          <p className="education-degree">{entry.degree}</p>
+          <p className="timeline-period">{entry.period}</p>
+          <p className="education-positioning">{entry.positioning}</p>
+          <ul className="badge-list" aria-label={`${entry.institution} academic pillars`}>
+            {entry.pillars.map((pillar) => (
+              <li key={`${entry.institution}-${pillar}`}>{pillar}</li>
+            ))}
+          </ul>
+          <p className="education-foundation">{entry.foundation}</p>
+        </article>
+      ))}
+    </div>
   );
 }
 

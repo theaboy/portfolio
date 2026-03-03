@@ -1,7 +1,9 @@
 import {
   resumeData,
   skillCategoryOrder,
+  type ResumeAcademicExperience,
   type ResumeExperience,
+  type ResumeIndependentExploration,
   type ResumeProject,
   type SkillCategoryName,
 } from "./resumeData";
@@ -10,6 +12,8 @@ export type SkillUsage = {
   technology: string;
   projects: ResumeProject[];
   experiences: ResumeExperience[];
+  academic: ResumeAcademicExperience[];
+  independent: ResumeIndependentExploration[];
 };
 
 export type GlobeRegion = {
@@ -34,22 +38,51 @@ function findExperienceBySkill(skill: string) {
   );
 }
 
+function findAcademicBySkill(skill: string) {
+  return resumeData.academicExperience.filter((item) => item.skillsUsed.includes(skill));
+}
+
+function findIndependentBySkill(skill: string) {
+  return resumeData.independentExploration.filter((item) =>
+    item.skillsUsed.includes(skill)
+  );
+}
+
 export function getGlobeRegions(): GlobeRegion[] {
-  return skillCategoryOrder.map((category) => ({
-    category,
-    technologies: resumeData.skills[category].map((technology) => ({
-      technology,
-      projects: findProjectsBySkill(technology),
-      experiences: findExperienceBySkill(technology),
-    })),
-  }));
+  return skillCategoryOrder
+    .map((category) => ({
+      category,
+      technologies: resumeData.skills[category]
+        .map((technology) => {
+          const projects = findProjectsBySkill(technology);
+          const experiences = findExperienceBySkill(technology);
+          const academic = findAcademicBySkill(technology);
+          const independent = findIndependentBySkill(technology);
+
+          return {
+            technology,
+            projects,
+            experiences,
+            academic,
+            independent,
+          };
+        })
+        .filter(
+          (usage) =>
+            usage.projects.length > 0 ||
+            usage.experiences.length > 0 ||
+            usage.academic.length > 0 ||
+            usage.independent.length > 0
+        ),
+    }))
+    .filter((region) => region.technologies.length > 0);
 }
 
 export function getStrictChatFacts() {
   return {
     resumeOnlyTopics: [
-      resumeData.education.institution,
-      resumeData.experience[0]?.company,
+      ...resumeData.education.map((item) => item.institution),
+      ...resumeData.experience.map((item) => `${item.company} (${item.role})`),
       resumeData.projects[0]?.title,
       resumeData.projects[1]?.title,
       resumeData.projects[2]?.title,

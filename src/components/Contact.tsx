@@ -5,24 +5,49 @@ type ContactProps = {
 };
 
 function Contact({ identity }: ContactProps) {
+  const year = new Date().getFullYear();
+
   return (
     <div className="contact-card" data-reveal>
-      <p>{identity.summary}</p>
-      <div className="contact-links">
-        <a href={identity.resumeFile}>Download Resume</a>
-        <a href={identity.linkedin} target="_blank" rel="noreferrer">
-          LinkedIn
-        </a>
-        <a href={identity.github} target="_blank" rel="noreferrer">
-          GitHub
-        </a>
-        <a href={identity.ctaHref}>{identity.ctaLabel}</a>
+      <div className="contact-primary">
+        <p>
+          Email: <a href={`mailto:${identity.email}`}>{identity.email}</a>
+        </p>
+        <div className="contact-links">
+          <a href={identity.linkedin} target="_blank" rel="noreferrer">
+            LinkedIn
+          </a>
+          <a href={identity.github} target="_blank" rel="noreferrer">
+            GitHub
+          </a>
+          <a href={identity.resumeFile}>Resume</a>
+        </div>
       </div>
-      <p>
-        Contact: <a href={`mailto:${identity.email}`}>{identity.email}</a>
+
+      <form
+        className="contact-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+        }}
+      >
+        <label htmlFor="contact-name">Name</label>
+        <input id="contact-name" name="name" type="text" autoComplete="name" placeholder="Your name" />
+        <label htmlFor="contact-email">Email</label>
+        <input id="contact-email" name="email" type="email" autoComplete="email" placeholder="you@company.com" />
+        <label htmlFor="contact-message">Message</label>
+        <textarea id="contact-message" name="message" rows={4} placeholder="Brief message" />
+        <button type="submit" className="btn btn-primary">
+          Send
+        </button>
+      </form>
+
+      <p className="footer-line">
+        (c) {year} {identity.name} - {identity.location}
       </p>
+      <p className="contact-summary">{identity.summary}</p>
     </div>
   );
 }
 
 export default Contact;
+

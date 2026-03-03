@@ -1,56 +1,29 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { type ResumeData } from "../data/resumeData";
 
 type ResumeChatbotProps = {
   resume: ResumeData;
+  compact?: boolean;
 };
 
-type ChatMode = "strict" | "relaxed";
-type MessageRole = "bot" | "user";
-
-type BotMessagePayload = {
-  label: "Yes" | "No" | "Partial";
-  summary: string;
-  evidence: string[];
-  details: string[];
-  sources: string[];
-  fallbackTips?: string[];
+type BotPayload = {
+  primary: string;
+  secondary?: string;
+  topic: "welcome" | "experience" | "projects" | "skills" | "education" | "fallback";
+  followUps: string[];
 };
 
 type ChatMessage = {
   id: string;
-  role: MessageRole;
+  role: "bot" | "user";
   text?: string;
-  payload?: BotMessagePayload;
+  payload?: BotPayload;
 };
 
-type SkillMention = {
-  skill: string;
-  aliases: string[];
-};
-
-const STARTER_QUESTION = "Summarize your backend experience";
-
-const QUICK_SUGGESTIONS = [
-  "Summarize your backend experience",
-  "What projects use Java?",
-  "What's your ML stack?",
-  "Education",
-  "Leadership",
-];
-
-const ALIAS_LOOKUP: Record<string, string[]> = {
-  java: ["java", "spring boot", "jvm", "backend in java"],
-  typescript: ["typescript", "type script", "ts"],
-  javascript: ["javascript", "js"],
-  machinelearning: ["ml", "machine learning", "ai", "modeling"],
-  backend: ["backend", "api", "apis", "rest", "server"],
-  projects: ["project", "projects", "build", "built"],
-  education: ["education", "mcgill", "degree", "university"],
-  leadership: ["leadership", "president", "club", "digi"],
-  certifications: ["certification", "certifications", "achievement", "prologin"],
-  experience: ["experience", "intern", "internship", "mytower", "work"],
-};
+const STARTER_QUESTION = "Ask about my experience, projects, skills, or education";
+const QUICK_SUGGESTIONS = ["Experience", "Projects", "Skills", "Education"];
+const DEFAULT_VISIBLE_MESSAGES = 5;
+const EXPANDED_VISIBLE_MESSAGES = 9;
 
 function normalize(text: string) {
   return text.toLowerCase().replace(/[^a-z0-9\s.+#-]/g, " ").replace(/\s+/g, " ").trim();
@@ -60,322 +33,225 @@ function includesAny(query: string, values: string[]) {
   return values.some((value) => query.includes(normalize(value)));
 }
 
-function unique(values: string[]) {
-  return Array.from(new Set(values));
+function getSkills(resume: ResumeData) {
+  return Object.values(resume.skills).flat();
 }
 
-function buildSkillMentions(resume: ResumeData): SkillMention[] {
-  const skills = Object.values(resume.skills).flat();
-  return skills.map((skill) => {
-    const key = normalize(skill);
-    const extraAliases = ALIAS_LOOKUP[key.replace(/\s+/g, "")] ?? [];
-    return { skill, aliases: unique([skill, ...extraAliases]) };
-  });
+function getFollowUps(topic: BotPayload["topic"]) {
+  if (topic === "experience") {
+    return ["What did you build at MyTower?", "What did you do at Nakhil?", "Which stack did you use?"];
+  }
+  if (topic === "projects") {
+    return ["Tell me about your top project", "Which project used C?", "Which project used Python?"];
+  }
+  if (topic === "skills") {
+    return ["Where did you use that skill?", "What backend technologies do you use?", "Do you have systems experience?"];
+  }
+  if (topic === "education") {
+    return ["What coursework is most relevant?", "What is your degree focus?", "Are you currently studying?"];
+  }
+  return ["Experience", "Projects", "Skills"];
 }
 
-function buildNoResultPayload(term: string, mode: ChatMode): BotMessagePayload {
-  const modeText = mode === "strict" ? "Strict mode" : "Relaxed mode";
+function buildNoMatchPayload(): BotPayload {
   return {
-    label: "No",
-    summary: `I couldn't find "${term}" in the resume data I'm allowed to use.`,
-    evidence: [`${modeText}: no matching skill, project, experience, education, certification, or leadership entity.`],
-    details: [],
-    sources: ["Resume dataset"],
-    fallbackTips: [
-      "Try asking: Which languages are on your resume?",
-      "Try asking: Summarize your backend experience",
-      "Try clicking a suggestion chip below",
-    ],
+    primary: "I can only answer from my resume.",
+    secondary: "Ask me about Experience, Projects, Skills, or Education.",
+    topic: "fallback",
+    followUps: getFollowUps("fallback"),
   };
 }
 
-function buildEducationPayload(resume: ResumeData): BotMessagePayload {
+function buildEducationPayload(resume: ResumeData): BotPayload {
+  const currentEducation = resume.education[0];
+  const priorEducation = resume.education[1];
   return {
-    label: "Yes",
-    summary: "Education is clearly listed.",
-    evidence: [
-      `${resume.education.institution} — ${resume.education.degree}`,
-      `Period: ${resume.education.period}`,
-    ],
-    details: [`Core pillars: ${resume.education.pillars.join(", ")}`],
-    sources: ["Education section"],
+    primary: `I'm currently studying ${currentEducation.degree} at ${currentEducation.institution} (${currentEducation.period}).`,
+    secondary: priorEducation
+      ? `Before that, I completed ${priorEducation.degree} at ${priorEducation.institution}.`
+      : `Relevant coursework includes ${currentEducation.pillars.slice(0, 4).join(", ")}.`,
+    topic: "education",
+    followUps: getFollowUps("education"),
   };
 }
 
-function buildLeadershipPayload(resume: ResumeData): BotMessagePayload {
-  const lead = resume.leadership[0];
-  return {
-    label: "Yes",
-    summary: "Leadership experience is listed.",
-    evidence: [`${lead.title}, ${lead.organization}`],
-    details: [lead.summary],
-    sources: ["Leadership section"],
-  };
-}
-
-function buildCertPayload(resume: ResumeData): BotMessagePayload {
-  return {
-    label: "Yes",
-    summary: "Certifications and achievements are listed.",
-    evidence: resume.certifications.map((item) => item),
-    details: [],
-    sources: ["Certifications section"],
-  };
-}
-
-function buildMlPayload(resume: ResumeData): BotMessagePayload {
-  const mlProjects = resume.projects.filter((project) =>
-    project.skillsUsed.some((skill) =>
-      includesAny(normalize(skill), ["python", "numpy", "pandas", "matplotlib", "sqlite", "n8n"])
-    )
-  );
-  return {
-    label: "Yes",
-    summary: "Machine learning and AI work is present.",
-    evidence: [
-      "Coursework includes Machine Learning at McGill.",
-      ...mlProjects.map((project) => `${project.title} — ${project.impact}`),
-    ],
-    details: [
-      `ML/Data tools in skills: ${["Python", "NumPy", "Pandas", "Matplotlib", "SQLite", "n8n"].filter((skill) =>
-        Object.values(resume.skills).flat().includes(skill)
-      ).join(", ")}`,
-    ],
-    sources: ["Education section", "Projects section", "Skills section"],
-  };
-}
-
-function buildBackendPayload(resume: ResumeData): BotMessagePayload {
-  const myTower = resume.experience[0];
-  return {
-    label: "Yes",
-    summary: "Backend experience is listed.",
-    evidence: [
-      `${myTower.company} (${myTower.role})`,
-      "Built service endpoints and API-oriented workflows in logistics context.",
-    ],
-    details: [
-      `Stack evidence: ${myTower.skillsUsed.join(", ")}`,
-      `Systems context: ${myTower.systems.join(", ")}`,
-    ],
-    sources: ["Experience section", "Skills section"],
-  };
-}
-
-function buildSkillPayload(
-  resume: ResumeData,
-  query: string,
-  mode: ChatMode,
-  mentions: SkillMention[]
-): BotMessagePayload {
+function buildProjectsPayload(resume: ResumeData, query: string): BotPayload {
   const normalized = normalize(query);
-  const matched = mentions.find((mention) =>
-    mention.aliases.some((alias) => normalized.includes(normalize(alias)))
-  );
+  const allSkills = getSkills(resume);
+  const matchedSkill = allSkills.find((skill) => normalized.includes(normalize(skill)));
+  const projects = matchedSkill
+    ? resume.projects.filter((project) => project.skillsUsed.includes(matchedSkill))
+    : resume.projects;
 
-  if (!matched) {
-    return buildNoResultPayload(query, mode);
-  }
-
-  const projects = resume.projects.filter((project) => project.skillsUsed.includes(matched.skill));
-  const roles = resume.experience.filter((experience) => experience.skillsUsed.includes(matched.skill));
-
-  const exists = projects.length > 0 || roles.length > 0 || Object.values(resume.skills).flat().includes(matched.skill);
-  if (!exists && mode === "strict") {
-    return buildNoResultPayload(matched.skill, mode);
-  }
-
-  if (!exists) {
+  if (!projects.length) {
     return {
-      label: "Partial",
-      summary: `${matched.skill} is not explicit, but related backend stack is present.`,
-      evidence: resume.experience.map((experience) => `${experience.company} — ${experience.skillsUsed.join(", ")}`),
-      details: ["Relaxed mode inferred this from adjacent technologies and role context."],
-      sources: ["Experience section", "Skills section"],
+      primary: `I don't have a project on my resume that explicitly lists ${matchedSkill}.`,
+      secondary: "I can share projects in AI, systems simulation, or regression modeling instead.",
+      topic: "projects",
+      followUps: getFollowUps("projects"),
     };
   }
 
-  const evidence: string[] = [];
-  if (roles.length) {
-    evidence.push(...roles.map((role) => `${role.company} (${role.role}) — ${role.skillsUsed.join(", ")}`));
-  }
-  if (projects.length) {
-    evidence.push(...projects.map((project) => `${project.title} — ${project.approach}`));
-  }
-  if (!roles.length && !projects.length) {
-    evidence.push(`${matched.skill} appears in skills list.`);
+  if (matchedSkill) {
+    const topProject = projects[0];
+    return {
+      primary: `Yes - I've used ${matchedSkill} in my ${topProject.title} project.`,
+      secondary:
+        projects.length > 1
+          ? `I also used it in ${projects
+              .slice(1, 3)
+              .map((project) => project.title)
+              .join(" and ")}.`
+          : topProject.impact,
+      topic: "projects",
+      followUps: getFollowUps("projects"),
+    };
   }
 
   return {
-    label: "Yes",
-    summary: `${matched.skill} is included in the resume.`,
-    evidence,
-    details: [
-      roles.length
-        ? `Role outcomes: ${roles.map((role) => role.summary).join(" | ")}`
-        : "No specific role summary tied to this skill.",
-    ],
-    sources: ["Skills section", ...(roles.length ? ["Experience section"] : []), ...(projects.length ? ["Projects section"] : [])],
+    primary: "I've built projects across AI workflows, systems simulation, and predictive modeling.",
+    secondary: `Recent examples: ${projects
+      .slice(0, 2)
+      .map((project) => project.title)
+      .join(" and ")}.`,
+    topic: "projects",
+    followUps: getFollowUps("projects"),
   };
 }
 
-function buildProjectsPayload(resume: ResumeData, query: string): BotMessagePayload {
+function buildExperiencePayload(resume: ResumeData, query: string): BotPayload {
   const normalized = normalize(query);
-  const skillMentions = buildSkillMentions(resume);
-  const matched = skillMentions.find((mention) =>
-    mention.aliases.some((alias) => normalized.includes(normalize(alias)))
+  const matchedExperience = resume.experience.find((item) =>
+    includesAny(normalized, [item.company, item.role, item.focus ?? ""])
   );
 
-  if (matched) {
-    const projects = resume.projects.filter((project) => project.skillsUsed.includes(matched.skill));
-    if (!projects.length) {
-      return {
-        label: "Partial",
-        summary: `No project explicitly lists ${matched.skill}.`,
-        evidence: resume.experience
-          .filter((experience) => experience.skillsUsed.includes(matched.skill))
-          .map((experience) => `${experience.company} (${experience.role}) uses ${matched.skill}`),
-        details: ["This technology appears in work experience rather than project entries."],
-        sources: ["Experience section", "Projects section"],
-      };
-    }
+  if (matchedExperience) {
     return {
-      label: "Yes",
-      summary: `Projects using ${matched.skill} were found.`,
-      evidence: projects.map((project) => `${project.title} — ${project.impact}`),
-      details: projects.map((project) => `Built with: ${project.skillsUsed.join(", ")}`),
-      sources: ["Projects section"],
+      primary: `I worked as a ${matchedExperience.role} at ${matchedExperience.company}.`,
+      secondary: matchedExperience.summary,
+      topic: "experience",
+      followUps: getFollowUps("experience"),
     };
   }
 
   return {
-    label: "Yes",
-    summary: "Projects are listed in the resume.",
-    evidence: resume.projects.map((project) => `${project.title} — ${project.problem}`),
-    details: resume.projects.map((project) => `Impact: ${project.impact}`),
-    sources: ["Projects section"],
+    primary: `I have internship experience at ${resume.experience
+      .map((item) => item.company)
+      .join(" and ")}.`,
+    secondary: "My work focused on backend integrations, workflow tools, and web app development.",
+    topic: "experience",
+    followUps: getFollowUps("experience"),
   };
 }
 
-function buildLanguagesPayload(resume: ResumeData): BotMessagePayload {
-  return {
-    label: "Yes",
-    summary: "Both programming and spoken languages are listed.",
-    evidence: [
-      `Programming: ${resume.skills.Programming.join(", ")}`,
-      `Spoken: ${resume.skills.Languages.join(", ")}`,
-    ],
-    details: [],
-    sources: ["Skills section"],
-  };
-}
+function buildSkillsPayload(resume: ResumeData, query: string): BotPayload {
+  const normalized = normalize(query);
+  const allSkills = getSkills(resume);
+  const matchedSkill = allSkills.find((skill) => normalized.includes(normalize(skill)));
 
-function buildPayload(resume: ResumeData, question: string, mode: ChatMode): BotMessagePayload {
-  const q = normalize(question);
-  const mentions = buildSkillMentions(resume);
-
-  if (!q) {
-    return buildNoResultPayload("empty question", mode);
-  }
-  if (includesAny(q, ["hello", "hi", "hey"])) {
+  if (!matchedSkill) {
     return {
-      label: "Yes",
-      summary: "Ready. Ask about experience, projects, skills, education, certifications, or leadership.",
-      evidence: ["I only answer from resume-backed data."],
-      details: [`Current mode: ${mode === "strict" ? "Strict" : "Relaxed"}`],
-      sources: ["Resume dataset"],
+      primary: "My resume highlights Python, Java, C, SQL, React, Angular, and Spring Boot.",
+      secondary: "I can break down where any specific skill was used.",
+      topic: "skills",
+      followUps: getFollowUps("skills"),
     };
   }
-  if (includesAny(q, ALIAS_LOOKUP.education)) return buildEducationPayload(resume);
-  if (includesAny(q, ALIAS_LOOKUP.leadership)) return buildLeadershipPayload(resume);
-  if (includesAny(q, ALIAS_LOOKUP.certifications)) return buildCertPayload(resume);
-  if (includesAny(q, ["language", "languages"])) return buildLanguagesPayload(resume);
-  if (includesAny(q, ALIAS_LOOKUP.machinelearning)) return buildMlPayload(resume);
-  if (includesAny(q, ALIAS_LOOKUP.backend)) return buildBackendPayload(resume);
-  if (includesAny(q, ALIAS_LOOKUP.projects)) return buildProjectsPayload(resume, question);
-  if (includesAny(q, ALIAS_LOOKUP.experience)) return buildBackendPayload(resume);
 
-  return buildSkillPayload(resume, question, mode, mentions);
+  const matchedExperience = resume.experience.find((item) => item.skillsUsed.includes(matchedSkill));
+  const matchedProject = resume.projects.find((item) => item.skillsUsed.includes(matchedSkill));
+
+  if (matchedExperience) {
+    return {
+      primary: `Yes - I've used ${matchedSkill} during my ${matchedExperience.company} internship.`,
+      secondary: `Role: ${matchedExperience.role}.`,
+      topic: "skills",
+      followUps: getFollowUps("skills"),
+    };
+  }
+
+  if (matchedProject) {
+    return {
+      primary: `Yes - I've used ${matchedSkill} for my ${matchedProject.title} project.`,
+      secondary: matchedProject.impact,
+      topic: "skills",
+      followUps: getFollowUps("skills"),
+    };
+  }
+
+  return {
+    primary: `Yes - ${matchedSkill} is part of my skill set.`,
+    secondary: "I can share related internship or project context from the sections above.",
+    topic: "skills",
+    followUps: getFollowUps("skills"),
+  };
 }
 
-function ResumeChatbot({ resume }: ResumeChatbotProps) {
-  const [mode, setMode] = useState<ChatMode>("strict");
+function buildPayload(resume: ResumeData, question: string): BotPayload {
+  const normalized = normalize(question);
+  if (!normalized) return buildNoMatchPayload();
+  if (includesAny(normalized, ["education", "degree", "university", "mcgill"])) {
+    return buildEducationPayload(resume);
+  }
+  if (includesAny(normalized, ["project", "projects", "build", "built"])) {
+    return buildProjectsPayload(resume, question);
+  }
+  if (includesAny(normalized, ["experience", "intern", "internship", "nakhil", "mytower", "work"])) {
+    return buildExperiencePayload(resume, question);
+  }
+  if (includesAny(normalized, ["skill", "skills", "stack", "technology", "technologies"])) {
+    return buildSkillsPayload(resume, question);
+  }
+  if (includesAny(normalized, getSkills(resume))) {
+    return buildSkillsPayload(resume, question);
+  }
+  return buildNoMatchPayload();
+}
+
+function ResumeChatbot({ resume, compact = false }: ResumeChatbotProps) {
   const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
       role: "bot",
       payload: {
-        label: "Yes",
-        summary: "Resume Chatbot is ready in Strict mode.",
-        evidence: [
-          "Ask direct questions about skills, projects, education, experience, certifications, and leadership.",
-        ],
-        details: ["Use chips for quick prompts or type your own question."],
-        sources: ["Resume dataset"],
+        primary: "This assistant answers strictly from my resume.",
+        secondary: "Ask about Experience, Projects, Skills, or Education.",
+        topic: "welcome",
+        followUps: [],
       },
     },
   ]);
-
-  const listRef = useRef<HTMLDivElement | null>(null);
+  const [expandedWindow, setExpandedWindow] = useState(false);
 
   const quickSuggestions = useMemo(() => QUICK_SUGGESTIONS, []);
-
-  useEffect(() => {
-    if (!listRef.current) return;
-    listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [messages, isTyping]);
-
-  const runBotResponse = (question: string) => {
-    const payload = buildPayload(resume, question, mode);
-    const messageId = `bot-${Date.now()}`;
-
-    setIsTyping(true);
-    const typingDelay = 300 + Math.floor(Math.random() * 500);
-
-    window.setTimeout(() => {
-      setIsTyping(false);
-      const hiddenPayload: BotMessagePayload = { ...payload, summary: "" };
-      setMessages((current) => [...current, { id: messageId, role: "bot", payload: hiddenPayload }]);
-      setStreamingMessageId(messageId);
-
-      let index = 0;
-      const full = payload.summary;
-      const interval = window.setInterval(() => {
-        index += 1;
-        const nextSummary = full.slice(0, index);
-        setMessages((current) =>
-          current.map((message) => {
-            if (message.id !== messageId || !message.payload) return message;
-            return { ...message, payload: { ...payload, summary: nextSummary } };
-          })
-        );
-
-        if (index >= full.length) {
-          window.clearInterval(interval);
-          setStreamingMessageId((current) => (current === messageId ? null : current));
-        }
-      }, 14);
-    }, typingDelay);
-  };
+  const visibleMessages = useMemo(
+    () =>
+      messages.slice(
+        -(expandedWindow ? EXPANDED_VISIBLE_MESSAGES : DEFAULT_VISIBLE_MESSAGES)
+      ),
+    [messages, expandedWindow]
+  );
+  const hasOlderMessages = messages.length > visibleMessages.length;
+  const latestBotMessage = [...visibleMessages].reverse().find((message) => message.role === "bot");
 
   const submitQuestion = (question: string) => {
     const clean = question.trim();
     if (!clean) return;
-    setMessages((current) => [...current, { id: `user-${Date.now()}`, role: "user", text: clean }]);
-    setInput("");
-    runBotResponse(clean);
-  };
 
-  const onSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    submitQuestion(input);
+    const payload = buildPayload(resume, clean);
+    const stamp = Date.now();
+    setMessages((current) => [
+      ...current,
+      { id: `user-${stamp}`, role: "user", text: clean },
+      { id: `bot-${stamp + 1}`, role: "bot", payload },
+    ]);
+    setExpandedWindow(false);
+    setInput("");
   };
 
   return (
-    <div className="chatbot-card chatbot-shell" data-reveal>
+    <div className={`chatbot-card chatbot-shell ${compact ? "chatbot-compact" : ""}`} data-reveal>
       <div className="chatbot-topbar">
         <div className="chatbot-topbar-meta">
           <span className="chatbot-avatar" aria-hidden="true">
@@ -383,100 +259,9 @@ function ResumeChatbot({ resume }: ResumeChatbotProps) {
           </span>
           <div>
             <p className="chatbot-title">Resume Chatbot</p>
-            <p className="chatbot-subtitle">Resume Bot • {mode === "strict" ? "Strict mode" : "Relaxed mode"}</p>
+            <p className="chatbot-subtitle">Resume-grounded answers</p>
           </div>
         </div>
-        <div className="mode-toggle" role="group" aria-label="Response mode">
-          <button
-            type="button"
-            className={mode === "strict" ? "mode-btn is-active" : "mode-btn"}
-            onClick={() => setMode("strict")}
-          >
-            Strict
-          </button>
-          <button
-            type="button"
-            className={mode === "relaxed" ? "mode-btn is-active" : "mode-btn"}
-            onClick={() => setMode("relaxed")}
-          >
-            Relaxed
-          </button>
-        </div>
-      </div>
-
-      <div className="chat-window" ref={listRef}>
-        {messages.map((message) => {
-          if (message.role === "user") {
-            return (
-              <div key={message.id} className="chat-row chat-row-user">
-                <div className="chat-bubble chat-bubble-user">
-                  <p>{message.text}</p>
-                </div>
-              </div>
-            );
-          }
-
-          const payload = message.payload;
-          if (!payload) return null;
-          const isStreaming = streamingMessageId === message.id;
-          return (
-            <div key={message.id} className="chat-row chat-row-bot">
-              <span className="chat-avatar-mini" aria-hidden="true">
-                AR
-              </span>
-              <div className="chat-bubble chat-bubble-bot">
-                <p className="bot-label">
-                  {payload.label} - <span>{payload.summary || " "}</span>
-                </p>
-                <ul className="bot-points">
-                  {payload.evidence.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-                {payload.details.length > 0 && (
-                  <ul className="bot-details">
-                    {payload.details.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                )}
-                {payload.fallbackTips && payload.fallbackTips.length > 0 && (
-                  <ul className="bot-fallback">
-                    {payload.fallbackTips.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                )}
-                {!isStreaming && (
-                  <details className="bot-sources">
-                    <summary>Sources</summary>
-                    <ul>
-                      {payload.sources.map((source) => (
-                        <li key={source}>{source}</li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-              </div>
-            </div>
-          );
-        })}
-
-        {isTyping && (
-          <div className="chat-row chat-row-bot">
-            <span className="chat-avatar-mini" aria-hidden="true">
-              AR
-            </span>
-            <div className="chat-bubble chat-bubble-bot typing-bubble" aria-live="polite">
-              <span>Thinking</span>
-              <span className="typing-dots" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="chat-suggestions" aria-label="Suggested questions">
@@ -487,24 +272,76 @@ function ResumeChatbot({ resume }: ResumeChatbotProps) {
         ))}
       </div>
 
-      <form className="chatbot-composer" onSubmit={onSubmit}>
-        <label htmlFor="resume-chat">Ask a resume question</label>
-        <textarea
-          id="resume-chat"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              submitQuestion(input);
-            }
-          }}
-          rows={2}
-          placeholder={STARTER_QUESTION}
-        />
-        <button type="submit" className="btn btn-primary">
-          Send
-        </button>
+      <div className="chat-messages compact-window" aria-live="polite">
+        {hasOlderMessages && (
+          <button
+            type="button"
+            className="chat-view-more"
+            onClick={() => setExpandedWindow((current) => !current)}
+          >
+            {expandedWindow ? "Show recent" : "View earlier messages"}
+          </button>
+        )}
+        {visibleMessages.map((message) => {
+          if (message.role === "user") {
+            return (
+              <div key={message.id} className="chat-row chat-row-user">
+                <div className="chat-bubble chat-bubble-user">
+                  <p>{message.text}</p>
+                </div>
+              </div>
+            );
+          }
+
+          if (!message.payload) return null;
+          return (
+            <div key={message.id} className="chat-row chat-row-bot">
+              <div className="chat-bubble chat-bubble-bot">
+                <p className={`bot-label ${message.id === "welcome" ? "bot-label-subtle" : ""}`}>
+                  {message.payload.primary}
+                </p>
+                {message.payload.secondary && (
+                  <p className="bot-supporting-text">{message.payload.secondary}</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {!!latestBotMessage?.payload?.followUps.length && latestBotMessage.payload.topic !== "welcome" && (
+          <div className="chat-followups" aria-label="Suggested follow-up questions">
+            {latestBotMessage.payload.followUps.slice(0, 3).map((question) => (
+              <button
+                key={question}
+                type="button"
+                className="chat-chip chat-chip-followup"
+                onClick={() => submitQuestion(question)}
+              >
+                {question}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <form
+        className="chatbot-composer"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submitQuestion(input);
+        }}
+      >
+        <label htmlFor="resume-chat">Ask about my resume</label>
+        <div className="chat-input-row">
+          <input
+            id="resume-chat"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder={STARTER_QUESTION}
+          />
+          <button type="submit" className="btn btn-primary">
+            Ask
+          </button>
+        </div>
       </form>
     </div>
   );

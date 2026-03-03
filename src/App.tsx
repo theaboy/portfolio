@@ -10,9 +10,8 @@ import ProjectCard from "./components/ProjectCard";
 import ResumeChatbot from "./components/ResumeChatbot";
 import SkillsPlanet from "./components/SkillsPlanet";
 import Section from "./components/Section";
-import SkillGrid from "./components/SkillGrid";
 import { resumeData, type ResumeProject } from "./data/resumeData";
-import { getGlobeRegions, getSkillCategories } from "./data/resumeSelectors";
+import { getGlobeRegions } from "./data/resumeSelectors";
 
 function App() {
   const [activeCaseStudy, setActiveCaseStudy] = useState<ResumeProject | null>(null);
@@ -53,23 +52,23 @@ function App() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [activeCaseStudy]);
 
-  const skillCategories = getSkillCategories();
   const globeRegions = getGlobeRegions();
 
   return (
     <>
       <Navbar />
-      <a className="floating-resume-btn" href={resumeData.identity.resumeFile}>
-        Resume
-      </a>
 
       <main>
-        <Hero identity={resumeData.identity} tags={resumeData.headerTags} />
+        <Hero
+          identity={resumeData.identity}
+          tags={resumeData.headerTags}
+          chatbotSlot={<ResumeChatbot resume={resumeData} compact />}
+        />
 
         <Section
           id="education"
           title="Education"
-          subtitle="Academic foundations mapped to systems and machine learning work."
+          subtitle="Academic training built for machine learning, backend systems, and mathematically grounded engineering."
         >
           <EducationPanel education={resumeData.education} />
         </Section>
@@ -99,11 +98,11 @@ function App() {
         </Section>
 
         <Section
-          id="skills"
-          title="Skills"
-          subtitle="Resume skill categories powering UI tags, globe regions, and project mappings."
+          id="globe"
+          title="Skills Globe"
+          subtitle="Interactive skill map with evidence from work experience and projects."
         >
-          <SkillGrid categories={skillCategories} />
+          <SkillsPlanet regions={globeRegions} />
         </Section>
 
         <Section
@@ -125,25 +124,9 @@ function App() {
         <Section
           id="contact"
           title="Contact"
-          subtitle="Conversion-focused actions for resume review and opportunity discussions."
+          subtitle="Email, social links, and a direct way to start a conversation."
         >
           <Contact identity={resumeData.identity} />
-        </Section>
-
-        <Section
-          id="globe"
-          title="3D Skill Globe"
-          subtitle="Categories and usage mapping derived directly from resume skills and project/experience links."
-        >
-          <SkillsPlanet regions={globeRegions} />
-        </Section>
-
-        <Section
-          id="chatbot"
-          title="Resume Chatbot"
-          subtitle="Strict mode responses based only on listed resume entities."
-        >
-          <ResumeChatbot resume={resumeData} />
         </Section>
       </main>
 

@@ -24,7 +24,6 @@ import {
   SiLinux,
   SiMysql,
   SiMongodb,
-  SiPandas,
   SiPython,
   SiReact,
   SiSqlite,
@@ -69,7 +68,7 @@ type EvidenceItem = {
   id: string;
   title: string;
   context: string;
-  kind: "project" | "experience";
+  kind: "project" | "experience" | "academic" | "independent";
 };
 
 const PLANET_RADIUS = 1.55;
@@ -128,12 +127,12 @@ function getIconForSkill(name: string, category: string): ReactNode {
 
   switch (normalized) {
     case "python":
-    case "matplotlib":
       Icon = SiPython;
       break;
     case "numpy":
     case "pandas":
-      Icon = SiPandas;
+    case "matplotlib":
+      Icon = SiPython;
       break;
     case "java":
       Icon = FaCode;
@@ -420,7 +419,21 @@ function buildEvidence(skill: PlanetSkill): EvidenceItem[] {
     kind: "experience" as const,
   }));
 
-  return [...projectEvidence, ...experienceEvidence];
+  const academicEvidence = skill.usage.academic.map((entry) => ({
+    id: `academic:${entry.course}`,
+    title: entry.course,
+    context: toShortLine(entry.context),
+    kind: "academic" as const,
+  }));
+
+  const independentEvidence = skill.usage.independent.map((entry) => ({
+    id: `independent:${entry.title}`,
+    title: entry.title,
+    context: toShortLine(entry.context),
+    kind: "independent" as const,
+  }));
+
+  return [...projectEvidence, ...experienceEvidence, ...academicEvidence, ...independentEvidence];
 }
 
 function SkillsPlanet({ regions }: SkillsPlanetProps) {
@@ -465,17 +478,17 @@ function SkillsPlanet({ regions }: SkillsPlanetProps) {
     return flattened.map((skill, index) => ({ ...skill, ...coords[index] }));
   }, [regions]);
 
-  useEffect(() => {
-    if (!skills.length || pinnedSkillId) return;
-    const preferred = skills.find((skill) => skill.usage.projects.length > 0) ?? skills[0];
-    setPinnedSkillId(preferred.id);
-  }, [skills, pinnedSkillId]);
-
   const activeSkillId = hoveredSkillId ?? pinnedSkillId;
   const activeSkill = useMemo(() => skills.find((skill) => skill.id === activeSkillId) ?? null, [skills, activeSkillId]);
   const evidence = useMemo(() => (activeSkill ? buildEvidence(activeSkill) : []), [activeSkill]);
-  const projectEvidence = evidence.filter((item) => item.kind === "project");
-  const experienceEvidence = evidence.filter((item) => item.kind === "experience");
+  const usedInItems = evidence.map((item) => item.title);
+
+  const getKindLabel = (kind: EvidenceItem["kind"]) => {
+    if (kind === "project") return "Project";
+    if (kind === "experience") return "Work";
+    if (kind === "academic") return "Academic";
+    return "Independent";
+  };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!viewportRef.current) return;
@@ -614,36 +627,18 @@ function SkillsPlanet({ regions }: SkillsPlanetProps) {
             <p className="eyebrow">{activeSkill.category}</p>
             <h3>{activeSkill.name}</h3>
 
-            {projectEvidence.length > 0 && (
+            {evidence.length > 0 && (
               <section className="planet-evidence-block">
-                <p className="planet-evidence-title">Used in: {projectEvidence.map((item) => item.title).join(", ")}</p>
+                <p className="planet-evidence-title">Used in: {usedInItems.join(", ")}</p>
                 <ul>
-                  {projectEvidence.map((item) => (
+                  {evidence.map((item) => (
                     <li key={item.id}>
-                      <strong>{item.title}</strong>: {item.context}
+                      <strong>{item.title}</strong>
+                      <span className="planet-evidence-kind">{getKindLabel(item.kind)}</span>: {item.context}
                     </li>
                   ))}
                 </ul>
               </section>
-            )}
-
-            {experienceEvidence.length > 0 && (
-              <section className="planet-evidence-block">
-                <p className="planet-evidence-title">Experience evidence</p>
-                <ul>
-                  {experienceEvidence.map((item) => (
-                    <li key={item.id}>
-                      <strong>{item.title}</strong>: {item.context}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {evidence.length === 0 && (
-              <p className="planet-evidence-empty">
-                Currently not linked to a project in the portfolio data.
-              </p>
             )}
           </>
         ) : (

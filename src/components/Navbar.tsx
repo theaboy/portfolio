@@ -14,7 +14,7 @@ function Navbar() {
             </li>
           ))}
         </ul>
-        <a className="btn btn-primary nav-resume" href={resumeData.identity.resumeFile}>
+        <a className="btn btn-primary nav-resume" href={resumeData.identity.resumeFile} download>
           Download Resume
         </a>
       </nav>
