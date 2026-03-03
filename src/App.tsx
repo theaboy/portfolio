@@ -99,8 +99,8 @@ function App() {
 
         <Section
           id="globe"
-          title="Skills Globe"
-          subtitle="Interactive skill map with evidence from work experience and projects."
+          title="Technical Architecture"
+          subtitle="Capabilities mapped to production work, applied projects, and engineering fundamentals."
         >
           <SkillsPlanet regions={globeRegions} />
         </Section>

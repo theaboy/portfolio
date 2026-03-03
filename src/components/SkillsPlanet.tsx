@@ -71,12 +71,13 @@ type EvidenceItem = {
   kind: "project" | "experience" | "academic" | "independent";
 };
 
-const PLANET_RADIUS = 1.55;
-const MARKER_RADIUS = PLANET_RADIUS + 0.2;
+const PLANET_RADIUS = 1.38;
+const MARKER_RADIUS = PLANET_RADIUS * 0.84;
 const PITCH_LIMIT = 0.72;
 const CLICK_DRAG_THRESHOLD_PX = 6;
 const ROTATE_SENSITIVITY = 0.0049;
-const MIN_MARKER_GAP_PX = 34;
+const CAMERA_Z = 5.8;
+const CAMERA_FOV = 36;
 
 function clampPitch(value: number) {
   return THREE.MathUtils.clamp(value, -PITCH_LIMIT, PITCH_LIMIT);
@@ -92,6 +93,10 @@ function useMediaQuery(query: string) {
     return () => mediaQuery.removeEventListener("change", onChange);
   }, [query]);
   return matches;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function toShortLine(text: string, max = 110) {
@@ -119,6 +124,65 @@ function buildSkillCoordinates(count: number, radius: number) {
   }
 
   return coords;
+}
+
+type AnchorPoint = { lat: number; lon: number; position: [number, number, number] };
+
+function buildSkillAnchors(count: number) {
+  if (count <= 0) return [] as AnchorPoint[];
+
+  const base = buildSkillCoordinates(count, 1);
+  const candidates: Array<{ yaw: number; pitch: number }> = [];
+  for (let yawStep = 0; yawStep < 72; yawStep += 1) {
+    const yaw = (Math.PI * 2 * yawStep) / 72;
+    for (let pitchStep = -4; pitchStep <= 4; pitchStep += 1) {
+      const pitch = (pitchStep / 12) * Math.PI;
+      candidates.push({ yaw, pitch });
+    }
+  }
+
+  let best = { yaw: 0, pitch: 0, score: Number.NEGATIVE_INFINITY };
+
+  for (const candidate of candidates) {
+    const rotation = new THREE.Euler(candidate.pitch, candidate.yaw, 0, "YXZ");
+    const rotated = base.map((anchor) => new THREE.Vector3(...anchor.position).applyEuler(rotation));
+    const front = rotated.filter((v) => v.z > 0);
+    if (front.length === 0) continue;
+
+    const frontRatio = front.length / rotated.length;
+    const meanX = front.reduce((sum, v) => sum + v.x, 0) / front.length;
+    const meanY = front.reduce((sum, v) => sum + v.y, 0) / front.length;
+    const frontFill = front.reduce((sum, v) => sum + Math.sqrt(v.x * v.x + v.y * v.y), 0) / front.length;
+    const rimPenalty =
+      front.reduce((sum, v) => {
+        const r = Math.sqrt(v.x * v.x + v.y * v.y);
+        return sum + (r > 0.92 ? r - 0.92 : 0);
+      }, 0) / front.length;
+
+    const score =
+      frontRatio * 3 +
+      frontFill * 0.7 -
+      Math.abs(meanX) * 1.1 -
+      Math.abs(meanY) * 0.8 -
+      rimPenalty * 2.2;
+
+    if (score > best.score) {
+      best = { yaw: candidate.yaw, pitch: candidate.pitch, score };
+    }
+  }
+
+  const rotation = new THREE.Euler(best.pitch, best.yaw, 0, "YXZ");
+
+  return base.map((anchor) => {
+    const v = new THREE.Vector3(...anchor.position).applyEuler(rotation).normalize();
+    const lat = Math.asin(THREE.MathUtils.clamp(v.y, -1, 1));
+    const lon = Math.atan2(v.z, v.x);
+    return {
+      lat,
+      lon,
+      position: [v.x, v.y, v.z] as [number, number, number],
+    };
+  });
 }
 
 function getIconForSkill(name: string, category: string): ReactNode {
@@ -247,8 +311,8 @@ const SkillMarker = memo(function SkillMarker({
 
   return (
     <group position={skill.position}>
-      <Html transform sprite distanceFactor={8.6} style={{ overflow: "visible" }}>
-        <div className="planet-marker-wrap">
+      <Html center style={{ overflow: "visible" }}>
+        <div className="planet-marker-wrap planet-marker-anchor">
           <button
             ref={(node) => registerNode(skill.id, node)}
             type="button"
@@ -275,6 +339,8 @@ const SkillMarker = memo(function SkillMarker({
 
 type PlanetMarkersProps = {
   skills: PlanetSkill[];
+  markerRadius: number;
+  sharedGroupRef: MutableRefObject<THREE.Group | null>;
   reducedMotion: boolean;
   autoRotate: boolean;
   highlightedSkillId: string | null;
@@ -287,6 +353,8 @@ type PlanetMarkersProps = {
 
 function PlanetMarkers({
   skills,
+  markerRadius,
+  sharedGroupRef,
   reducedMotion,
   autoRotate,
   highlightedSkillId,
@@ -296,7 +364,6 @@ function PlanetMarkers({
   onHoverEnd,
   onSelectSkill,
 }: PlanetMarkersProps) {
-  const groupRef = useRef<THREE.Group>(null);
   const nodeRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const reusableVector = useRef(new THREE.Vector3());
 
@@ -304,7 +371,7 @@ function PlanetMarkers({
     nodeRefs.current[skillId] = node;
   };
 
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     const interaction = interactionRef.current;
 
     if (!interaction.dragging) {
@@ -318,7 +385,7 @@ function PlanetMarkers({
       interaction.velocityPitch *= damping;
     }
 
-    const group = groupRef.current;
+    const group = sharedGroupRef.current;
     if (!group) return;
     group.rotation.x = interaction.pitch;
     group.rotation.y = interaction.yaw;
@@ -327,66 +394,37 @@ function PlanetMarkers({
       .map((skill) => {
         reusableVector.current.set(...skill.position).applyEuler(group.rotation);
         const depth = reusableVector.current.z;
-        const frontness = THREE.MathUtils.clamp((depth + PLANET_RADIUS) / (PLANET_RADIUS * 2), 0, 1);
-        const projected = reusableVector.current.clone().project(state.camera);
-        const screenX = (projected.x * 0.5 + 0.5) * state.size.width;
-        const screenY = (-projected.y * 0.5 + 0.5) * state.size.height;
-        const priority =
-          (focusedSkillId === skill.id ? 2_000 : 0) +
-          (highlightedSkillId === skill.id ? 1_000 : 0) +
-          Math.round(frontness * 100);
-
-        return { id: skill.id, depth, frontness, screenX, screenY, priority };
-      });
-
-    const accepted: Array<{ x: number; y: number; id: string }> = [];
-    const visibilityMap = new Map<string, boolean>();
-
-    markerCandidates
-      .slice()
-      .sort((a, b) => b.priority - a.priority || b.depth - a.depth)
-      .forEach((candidate) => {
-        if (focusedSkillId === candidate.id) {
-          visibilityMap.set(candidate.id, true);
-          accepted.push({ id: candidate.id, x: candidate.screenX, y: candidate.screenY });
-          return;
-        }
-
-        const collides = accepted.some((slot) => {
-          const dx = slot.x - candidate.screenX;
-          const dy = slot.y - candidate.screenY;
-          return dx * dx + dy * dy < MIN_MARKER_GAP_PX * MIN_MARKER_GAP_PX;
-        });
-
-        visibilityMap.set(candidate.id, !collides);
-        if (!collides) {
-          accepted.push({ id: candidate.id, x: candidate.screenX, y: candidate.screenY });
-        }
+        const frontness = THREE.MathUtils.clamp((depth + markerRadius) / (markerRadius * 2), 0, 1);
+        const rimRatio = Math.sqrt(
+          reusableVector.current.x * reusableVector.current.x +
+            reusableVector.current.y * reusableVector.current.y
+        ) / markerRadius;
+        const rimSafety = THREE.MathUtils.clamp((1 - rimRatio) / 0.18, 0, 1);
+        return { id: skill.id, depth, frontness, rimSafety };
       });
 
     for (const entry of markerCandidates) {
       const node = nodeRefs.current[entry.id];
       if (!node) continue;
 
-      const hiddenBack = entry.depth < -0.22;
-      const visibleFromSpacing = visibilityMap.get(entry.id) ?? true;
-      const baseOpacity = THREE.MathUtils.lerp(0.25, 1, entry.frontness);
-      const opacity = hiddenBack
-        ? 0.04
-        : visibleFromSpacing
-          ? baseOpacity
-          : THREE.MathUtils.clamp(baseOpacity * 0.08, 0.02, 0.08);
-      const scale = THREE.MathUtils.lerp(0.75, 1, entry.frontness);
+      const hiddenBack = entry.depth < -0.06;
+      const baseOpacity =
+        THREE.MathUtils.lerp(0.24, 1, entry.frontness) *
+        THREE.MathUtils.lerp(0.56, 1, entry.rimSafety);
+      const opacity = hiddenBack ? 0.01 : baseOpacity;
+      const scale =
+        THREE.MathUtils.lerp(0.72, 1, entry.frontness) *
+        THREE.MathUtils.lerp(0.76, 1, entry.rimSafety);
 
       node.style.opacity = `${opacity}`;
       node.style.setProperty("--marker-base-scale", `${scale}`);
-      node.style.zIndex = `${Math.round((entry.depth + PLANET_RADIUS) * 100)}`;
-      node.style.pointerEvents = hiddenBack || !visibleFromSpacing ? "none" : "auto";
+      node.style.zIndex = `${Math.round((entry.depth + markerRadius) * 100)}`;
+      node.style.pointerEvents = hiddenBack ? "none" : "auto";
     }
   });
 
   return (
-    <group ref={groupRef}>
+    <>
       {skills.map((skill) => (
         <SkillMarker
           key={skill.id}
@@ -400,7 +438,7 @@ function PlanetMarkers({
           registerNode={registerNode}
         />
       ))}
-    </group>
+    </>
   );
 }
 
@@ -438,14 +476,15 @@ function buildEvidence(skill: PlanetSkill): EvidenceItem[] {
 
 function SkillsPlanet({ regions }: SkillsPlanetProps) {
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [autoRotate, setAutoRotate] = useState(false);
   const [pinnedSkillId, setPinnedSkillId] = useState<string | null>(null);
   const [hoveredSkillId, setHoveredSkillId] = useState<string | null>(null);
   const [isDraggingUi, setIsDraggingUi] = useState(false);
 
   const interactionRef = useRef<InteractionState>({
-    yaw: 0.34,
-    pitch: 0.16,
+    yaw: 0,
+    pitch: 0,
     velocityYaw: 0,
     velocityPitch: 0,
     dragging: false,
@@ -463,19 +502,55 @@ function SkillsPlanet({ regions }: SkillsPlanetProps) {
   });
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const sceneGroupRef = useRef<THREE.Group | null>(null);
+  const markerSizePx = useMemo(() => {
+    const minSide = Math.min(viewportSize.width, viewportSize.height);
+    if (minSide <= 0) return 16;
+    return clamp(minSide * 0.062, 22, 30);
+  }, [viewportSize.height, viewportSize.width]);
+
+  const markerRadius = MARKER_RADIUS;
+
+  useEffect(() => {
+    const node = viewportRef.current;
+    if (!node) return;
+
+    const update = () => {
+      setViewportSize({ width: node.clientWidth, height: node.clientHeight });
+    };
+
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   const skills = useMemo<PlanetSkill[]>(() => {
-    const flattened = regions.flatMap((region) =>
-      region.technologies.map((technology) => ({
-        id: `${region.category}:${technology.technology}`,
-        category: region.category,
-        name: technology.technology,
-        usage: technology,
-      }))
-    );
+    const flattened = regions
+      .flatMap((region) =>
+        region.technologies.map((technology) => ({
+          id: `${region.category}:${technology.technology}`,
+          category: region.category,
+          name: technology.technology,
+          usage: technology,
+        }))
+      )
+      .sort((a, b) => a.id.localeCompare(b.id));
 
-    const coords = buildSkillCoordinates(flattened.length, MARKER_RADIUS);
-    return flattened.map((skill, index) => ({ ...skill, ...coords[index] }));
+    const anchors = buildSkillAnchors(flattened.length);
+    return flattened.map((skill, index) => {
+      const anchor = anchors[index];
+      return {
+        ...skill,
+        lat: anchor.lat,
+        lon: anchor.lon,
+        position: [
+          anchor.position[0] * markerRadius,
+          anchor.position[1] * markerRadius,
+          anchor.position[2] * markerRadius,
+        ] as [number, number, number],
+      };
+    });
   }, [regions]);
 
   const activeSkillId = hoveredSkillId ?? pinnedSkillId;
@@ -557,6 +632,7 @@ function SkillsPlanet({ regions }: SkillsPlanetProps) {
         <div
           ref={viewportRef}
           className={`planet-viewport ${isDraggingUi ? "is-dragging" : ""}`}
+          style={{ ["--planet-marker-size" as string]: `${markerSizePx}px` }}
           role="img"
           aria-label="Interactive skills planet"
           onPointerDown={onPointerDown}
@@ -564,49 +640,53 @@ function SkillsPlanet({ regions }: SkillsPlanetProps) {
           onPointerUp={finishDrag}
           onPointerCancel={finishDrag}
         >
-          <Canvas className="planet-canvas" dpr={[1, 1.75]} camera={{ position: [0, 0, 4.6], fov: 38 }}>
-            <ambientLight intensity={0.5} />
-            <directionalLight position={[2.8, 2.2, 3.6]} intensity={1.12} color="#d7e9ff" />
-            <pointLight position={[-2.9, -1.4, -2.5]} intensity={0.38} color="#579fff" />
+          <Canvas className="planet-canvas" dpr={[1, 1.75]} camera={{ position: [0, 0, CAMERA_Z], fov: CAMERA_FOV }}>
+            <ambientLight intensity={0.42} />
+            <directionalLight position={[2.8, 2.2, 3.6]} intensity={1.26} color="#d7e9ff" />
+            <pointLight position={[-2.9, -1.4, -2.5]} intensity={0.28} color="#4f8ce0" />
+            <hemisphereLight args={["#c8e1ff", "#041022", 0.26]} />
+            <group ref={sceneGroupRef}>
+              <mesh>
+                <sphereGeometry args={[PLANET_RADIUS, 56, 56]} />
+                <meshStandardMaterial
+                  color="#07142b"
+                  roughness={0.68}
+                  metalness={0.08}
+                  emissive="#081a37"
+                  emissiveIntensity={0.1}
+                />
+              </mesh>
 
-            <mesh>
-              <sphereGeometry args={[PLANET_RADIUS, 56, 56]} />
-              <meshStandardMaterial
-                color="#07142b"
-                roughness={0.56}
-                metalness={0.12}
-                emissive="#0a2147"
-                emissiveIntensity={0.16}
+              <mesh scale={1.003}>
+                <sphereGeometry args={[PLANET_RADIUS, 24, 24]} />
+                <meshBasicMaterial color="#8cc0ff" wireframe transparent opacity={0.14} />
+              </mesh>
+
+              <mesh scale={1.08}>
+                <sphereGeometry args={[PLANET_RADIUS, 42, 42]} />
+                <meshBasicMaterial
+                  color="#70adff"
+                  transparent
+                  opacity={0.045}
+                  side={THREE.BackSide}
+                  blending={THREE.AdditiveBlending}
+                />
+              </mesh>
+
+              <PlanetMarkers
+                skills={skills}
+                markerRadius={markerRadius}
+                sharedGroupRef={sceneGroupRef}
+                reducedMotion={reducedMotion}
+                autoRotate={autoRotate}
+                highlightedSkillId={hoveredSkillId}
+                focusedSkillId={pinnedSkillId}
+                interactionRef={interactionRef}
+                onHoverStart={setHoveredSkillId}
+                onHoverEnd={() => setHoveredSkillId(null)}
+                onSelectSkill={handleSelectSkill}
               />
-            </mesh>
-
-            <mesh scale={1.003}>
-              <sphereGeometry args={[PLANET_RADIUS, 24, 24]} />
-              <meshBasicMaterial color="#8cc0ff" wireframe transparent opacity={0.18} />
-            </mesh>
-
-            <mesh scale={1.08}>
-              <sphereGeometry args={[PLANET_RADIUS, 42, 42]} />
-              <meshBasicMaterial
-                color="#70adff"
-                transparent
-                opacity={0.1}
-                side={THREE.BackSide}
-                blending={THREE.AdditiveBlending}
-              />
-            </mesh>
-
-            <PlanetMarkers
-              skills={skills}
-              reducedMotion={reducedMotion}
-              autoRotate={autoRotate}
-              highlightedSkillId={hoveredSkillId}
-              focusedSkillId={pinnedSkillId}
-              interactionRef={interactionRef}
-              onHoverStart={setHoveredSkillId}
-              onHoverEnd={() => setHoveredSkillId(null)}
-              onSelectSkill={handleSelectSkill}
-            />
+            </group>
           </Canvas>
         </div>
 
@@ -622,8 +702,9 @@ function SkillsPlanet({ regions }: SkillsPlanetProps) {
       </div>
 
       <article className="planet-panel" data-reveal>
-        {activeSkill ? (
-          <>
+        <div className="planet-panel-content" key={activeSkill?.id ?? "idle"}>
+          {activeSkill ? (
+            <>
             <p className="eyebrow">{activeSkill.category}</p>
             <h3>{activeSkill.name}</h3>
 
@@ -640,10 +721,18 @@ function SkillsPlanet({ regions }: SkillsPlanetProps) {
                 </ul>
               </section>
             )}
-          </>
-        ) : (
-          <p className="planet-evidence-empty">Select a skill icon to inspect evidence.</p>
-        )}
+            </>
+          ) : (
+            <>
+              <p className="eyebrow">Capability Mapping</p>
+              <h3>Systems & ML Toolkit</h3>
+              <p className="planet-evidence-empty">
+                Technologies mapped directly to real-world projects and production experience.
+              </p>
+              <p className="planet-evidence-empty">Select a technology to inspect applied usage.</p>
+            </>
+          )}
+        </div>
       </article>
     </div>
   );
