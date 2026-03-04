@@ -6,6 +6,7 @@ export type ResumeSectionId =
   | "education"
   | "experience"
   | "projects"
+  | "globe"
   | "certifications"
   | "leadership"
   | "contact";
@@ -305,6 +306,7 @@ export const resumeSections: { id: ResumeSectionId; label: string }[] = [
   { id: "education", label: "Education" },
   { id: "experience", label: "Experience" },
   { id: "projects", label: "Projects" },
+  { id: "globe", label: "Skills" },
   { id: "certifications", label: "Certifications" },
   { id: "leadership", label: "Leadership" },
   { id: "contact", label: "Contact" },

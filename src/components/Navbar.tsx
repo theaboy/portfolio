@@ -5,7 +5,7 @@ function Navbar() {
   const visibleSections = useMemo(
     () =>
       resumeSections.filter((section) =>
-        ["education", "experience", "projects", "contact"].includes(section.id)
+        ["education", "experience", "projects", "globe", "contact"].includes(section.id)
       ),
     []
   );
