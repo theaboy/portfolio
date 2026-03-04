@@ -94,7 +94,7 @@ export const resumeData: ResumeData = {
     name: "Aymane Radouane",
     headline: "McGill CS & Math | ML + Backend Systems",
     location: "Montreal, QC",
-    email: "aymane@example.com",
+    email: "rad.aymane@gmail.com",
     linkedin: "https://www.linkedin.com/in/aymane-radouane",
     github: "https://github.com/theaboy",
     resumeFile: `${import.meta.env.BASE_URL}Aymane_Radouane_Resume.pdf`,
