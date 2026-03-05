@@ -1,84 +1,103 @@
-# Aymane Radouane Portfolio (React + Vite)
+# Aymane Radouane - Portfolio Website
 
-Modern single-page portfolio with a premium dark aesthetic, reusable components, and content-driven data files.
+Personal portfolio built to present my experience in machine learning, backend systems, and full-stack development.
 
-## Stack
+## Overview
 
-- React + Vite + TypeScript
-- Plain CSS (design system via CSS variables)
-- Minimal dependencies
+This project is a production-style React portfolio that centralizes my:
+
+- Education and technical foundation
+- Internship experience
+- Technical projects with impact details
+- Skills and certifications
+- Contact and resume access
+
+## Key Features
+
+- Resume-driven content architecture via typed data models
+- Interactive "Resume Chatbot" that answers from structured resume data
+- Project case study modal (problem, approach, technologies, impact)
+- 3D technical architecture section using Three.js (`@react-three/fiber`, `@react-three/drei`)
+- Scroll reveal animations with reduced-motion support
+- Responsive single-page layout with reusable section components
+
+## Tech Stack
+
+- React 19
+- TypeScript
+- Vite
+- Three.js + React Three Fiber + Drei
+- Plain CSS
 
 ## Project Structure
 
 ```txt
 src/
-  components/
-    Navbar.tsx
-    Hero.tsx
-    Section.tsx
-    ProjectCard.tsx
-    SkillGrid.tsx
-    Timeline.tsx
-    Contact.tsx
-  data/
-    projects.ts
-    skills.ts
-  App.tsx
-  main.tsx
-  styles.css
+  components/          # UI sections and interactive modules
+  data/                # Resume content, selectors, and skill mappings
+  assets/              # Project visuals and skill icons
+  App.tsx              # Page composition and modal behavior
+  main.tsx             # React bootstrap
+  styles.css           # Global styles and design system tokens
+public/
+  Aymane_Radouane_Resume.pdf
+.github/workflows/
+  deploy.yml           # GitHub Pages deployment pipeline
 ```
 
-## Run Locally
+## Local Development
 
 ```bash
 npm install
 npm run dev
 ```
 
-Build production bundle:
+Build for production:
 
 ```bash
 npm run build
 ```
 
-## Customize Content
+Preview production build locally:
 
-- Hero/About/Experience/Contact text: `src/App.tsx` and `src/components/*`
-- Projects: `src/data/projects.ts`
-- Skills: `src/data/skills.ts`
-- Theme + spacing + typography scale: `src/styles.css` in `:root`
-
-## GitHub Pages Deployment (Vite)
-
-### 1) Set correct base path
-
-Edit `vite.config.ts`:
-
-```ts
-base: "/YOUR-REPO-NAME/";
+```bash
+npm run preview
 ```
 
-For example, if repo is `portfolio`, keep `base: "/portfolio/"`.
+## Content Management
 
-### 2) Enable GitHub Pages in repo settings
+Update portfolio content in:
 
-- Go to `Settings -> Pages`
-- Set source to `GitHub Actions`
+- `src/data/resumeData.ts` (identity, education, experience, projects, skills, certifications, leadership)
 
-### 3) Push to main
+Behavior and page composition:
 
-Workflow file is included at:
+- `src/App.tsx`
+- `src/components/ResumeChatbot.tsx`
 
-`.github/workflows/deploy.yml`
+## Deployment (GitHub Pages)
 
-It will:
+This repository includes a GitHub Actions workflow at `.github/workflows/deploy.yml`.
 
-- install dependencies
-- build with Vite
-- deploy `dist/` to GitHub Pages
+1. Ensure `vite.config.ts` uses the correct base path:
 
-## Accessibility + Motion
+```ts
+base: "/portfolio/";
+```
 
-- Keyboard-visible focus styles
-- High-contrast palette usage
-- `prefers-reduced-motion` respected for animation and scrolling
+2. In your repository settings, set Pages source to `GitHub Actions`.
+3. Push to `main` to trigger build and deployment.
+
+## Internship Focus
+
+This portfolio is designed to communicate:
+
+- Ability to ship polished user-facing applications
+- Strong foundation in ML + backend + systems
+- Experience translating project work into clear technical narratives
+
+## Contact
+
+- Email: `rad.aymane@gmail.com`
+- LinkedIn: `https://www.linkedin.com/in/aymane-radouane`
+- GitHub: `https://github.com/theaboy`
