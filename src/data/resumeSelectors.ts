@@ -83,9 +83,7 @@ export function getStrictChatFacts() {
     resumeOnlyTopics: [
       ...resumeData.education.map((item) => item.institution),
       ...resumeData.experience.map((item) => `${item.company} (${item.role})`),
-      resumeData.projects[0]?.title,
-      resumeData.projects[1]?.title,
-      resumeData.projects[2]?.title,
+      ...resumeData.projects.map((project) => project.title),
       resumeData.leadership[0]?.organization,
       resumeData.certifications[0],
     ].filter(Boolean),

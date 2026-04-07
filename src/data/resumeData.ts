@@ -1,6 +1,8 @@
 import aiMedicalImage from "../assets/projects/ai-medical.jpg";
 import bikeSharingImage from "../assets/projects/bike-sharing.png";
+import getCrackedImage from "../assets/projects/GetCracked.png";
 import microsysImage from "../assets/projects/microsys.png";
+import passportAiImage from "../assets/projects/passportai.jpg";
 
 export type ResumeSectionId =
   | "education"
@@ -202,6 +204,37 @@ export const resumeData: ResumeData = {
       image: bikeSharingImage,
       skillsUsed: ["Python", "NumPy", "Pandas", "Matplotlib"],
       impact: "Reduced MSE from 5.35x10^5 to 4.53x10^5.",
+    },
+    {
+      id: "getcracked",
+      title: "GetCracked",
+      summary:
+        "Mobile-first academic engagement platform that turns studying, attendance, and collaboration into a gamified student experience.",
+      problem:
+        "Students struggle with fragmented study resources, inconsistent motivation, and low visibility into meaningful academic effort.",
+      approach:
+        "Designed a React Native and Supabase product around focus sessions, XP systems, course communities, and AI-assisted study workflows.",
+      image: getCrackedImage,
+      githubUrl: "https://github.com/theaboy/cracked-quest",
+      skillsUsed: ["React Native", "Expo", "Supabase", "TypeScript"],
+      impact:
+        "Defined an MVP for a socially driven study platform with focus modes, leaderboards, flashcards, and assignment breakdown workflows.",
+    },
+    {
+      id: "passportai",
+      title: "PassportAI",
+      summary:
+        "AI-powered immigration navigator that turns a short user description into a personalized roadmap for visas, scholarships, community support, and career planning.",
+      problem:
+        "Immigration research is fragmented, time-consuming, and difficult to personalize across legal, financial, and career decisions.",
+      approach:
+        "Built a React and Express hackathon product that uses AI to generate a tailored 'Life Passport' and a discovery feed of relocation insights.",
+      image: passportAiImage,
+      githubUrl: "https://github.com/theaboy/PassportAI",
+      skillsUsed: ["React", "Vite", "Tailwind CSS", "Node.js", "Express"],
+      impact:
+        "Shipped a working prototype in 3.5 hours at the McGill Data Network Hackathon with personalized action plans generated from plain-language user input.",
+      recognition: "Finalist at the McGill Data Network Hackathon 2026",
     },
   ],
   academicExperience: [
